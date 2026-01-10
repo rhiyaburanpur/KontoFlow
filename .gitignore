@@ -5,3 +5,4 @@ node_modules/
 *.xlsx
 .env
 *.csv
+*.db
