@@ -2,16 +2,10 @@ import pdfplumber as pdfp
 import pandas as pd 
 import os
 from dotenv import load_dotenv
+from sqlmodel import Session, select
+from models import Transaction, engine, create_db_and_tables
 
 load_dotenv()
-
-import pdfplumber as pdfp
-import pandas as pd
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
 pdf_path = os.getenv("PDF_PATH")
 pdf_password = os.getenv("PDF_PASSWORD")
 
@@ -25,12 +19,9 @@ try:
         first_page = pdf.pages[0]
         table = first_page.extract_table()
         
-        if table:
-            print("\n Extracted Data Preview: \n")
-            for row in table[:3]:
-                print(row)
-        else:
-            print('No table data found on the first page.')
+        if not table:
+            print("Error: No table found")
+            exit()
 
     df = pd.DataFrame(table[1:], columns=table[0])
     if 'Details' in df.columns:
@@ -47,17 +38,28 @@ try:
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(0).round(2)
     print(df.head())
 
+    print("Intializing Database")
+    create_db_and_tables()
+    with Session(engine) as session:
+        count = 0 
+        for index, row in df.iterrows():
+            txn = Transaction(
+                transaction_date=row["Date"].date(),
+                description=row["Details"],
+                reference=row["Ref No./Cheque\nNo"] if row["Ref No./Cheque\nNo"] != '-' else None,
+                debit_amount=row["Debit"],
+                credit_amount=row["Credit"],
+                balance=row["Balance"]
+            )
+            session.add(txn)
+            count+=1
+
+        session.commit()
+    print(f"Saved {count} transactions to database.db successfully.")
+
 except Exception as e:
-    print(f"An error occurred: {e}")
-
-df.rename(columns={
-    "Ref No./Cheque\nNo": "Reference",
-    "Date": "transaction_date",
-    "Details": "description",
-    "Debit": "debit_amount",
-    "Credit": "credit_amount",
-    "Balance": "balance"
-}, inplace=True)
-
+    import traceback
+    traceback.print_exc()
+    
 df.to_csv("c:/dev/KontoFow/backend/cleaned_statement.csv", index=False)
 print("Saved cleaned data to cleaned_statement.csv")
