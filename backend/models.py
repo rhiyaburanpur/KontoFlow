@@ -10,6 +10,7 @@ class Transaction(SQLModel, table=True):
     debit_amount: float = 0.0
     credit_amount: float = 0.0
     balance: float
+    category: str = "Other"
 
 sqlite_url = "sqlite:///database.db"
 engine = create_engine(sqlite_url, echo=True) 
