@@ -1,10 +1,16 @@
 import os
 import shutil
 from fastapi import FastAPI, Depends, Query, UploadFile, File, HTTPException
-from sqlmodel import Session, select
+from sqlmodel import SQLModel, Session, select, func
 from typing import List, Optional
 from models import Transaction, engine
 from etl import process_bank_statement
+
+class CategorySummary(SQLModel):
+    category: str
+    total_debit: float
+    total_credit: float
+    transaction_count: int
 
 app = FastAPI(title="KontoFlow API", version="1.0")
 
@@ -47,3 +53,36 @@ def read_transactions(
         )
     results = session.exec(statement).all()
     return results
+
+@app.get("/transactions/by-category", response_model=List[CategorySummary])
+def transactions_by_category(
+    session: Session = Depends(get_session),
+    category: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    statement = select(
+        Transaction.category,
+        func.round(func.sum(Transaction.debit_amount), 2).label("total_debit"),
+        func.round(func.sum(Transaction.credit_amount), 2).label("total_credit"),
+        func.count(Transaction.id).label("transaction_count")
+    ).group_by(Transaction.category)
+
+    if category:
+        statement = statement.where(Transaction.category == category)
+    if start_date:
+        statement = statement.where(Transaction.transaction_date >= start_date)
+    if end_date:
+        statement = statement.where(Transaction.transaction_date <= end_date)
+
+    rows = session.exec(statement).all()
+
+    return [
+        CategorySummary(
+            category=row[0],
+            total_debit=row[1],
+            total_credit=row[2],
+            transaction_count=row[3]
+        )
+        for row in rows
+    ]
