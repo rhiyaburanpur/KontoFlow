@@ -2,7 +2,7 @@ import pdfplumber as pdfp
 import pandas as pd
 from sqlmodel import Session
 from models import Transaction, engine
-
+from categorizer import categorize
 
 def process_bank_statement(pdf_path: str, pdf_password: str = None):
     # extraction
@@ -45,7 +45,8 @@ def process_bank_statement(pdf_path: str, pdf_password: str = None):
                 reference=row["Ref No./Cheque\nNo"] if row['Ref No./Cheque\nNo'] != '-' else None,
                 debit_amount=row["Debit"],
                 credit_amount=row['Credit'],
-                balance=row["Balance"]
+                balance=row["Balance"],
+                category=categorize(row['Details'])
             )
             session.add(txn)
             count += 1
