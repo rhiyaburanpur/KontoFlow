@@ -11,6 +11,7 @@ class Transaction(SQLModel, table=True):
     credit_amount: float = 0.0
     balance: float
     category: str = "Other"
+    transaction_hash: Optional[str] = Field(default=None, unique=True)
 
 sqlite_url = "sqlite:///database.db"
 engine = create_engine(sqlite_url, echo=True) 
