@@ -1,8 +1,13 @@
 import pdfplumber as pdfp
 import pandas as pd
-from sqlmodel import Session
+from sqlmodel import Session, select
 from models import Transaction, engine
 from categorizer import categorize
+import hashlib
+
+def compute_hash(transaction_date, description, debit_amount, credit_amount):
+    raw = f"{transaction_date}|{description}|{debit_amount}|{credit_amount}"
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 def process_bank_statement(pdf_path: str, pdf_password: str = None):
     # extraction
@@ -35,10 +40,24 @@ def process_bank_statement(pdf_path: str, pdf_password: str = None):
             df[col] = df[col].astype(str).str.replace(",", "")
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0).round(2)
 
-    # load
+   # load
     count = 0
     with Session(engine) as session:
         for _, row in df.iterrows():
+            txn_hash = compute_hash(
+                row['Date'].date(),
+                row['Details'],
+                row['Debit'],
+                row['Credit']
+            )
+
+            existing = session.exec(
+                select(Transaction).where(Transaction.transaction_hash == txn_hash)
+            ).first()
+
+            if existing:
+                continue
+
             txn = Transaction(
                 transaction_date=row['Date'].date(),
                 description=row['Details'],
@@ -46,11 +65,11 @@ def process_bank_statement(pdf_path: str, pdf_password: str = None):
                 debit_amount=row["Debit"],
                 credit_amount=row['Credit'],
                 balance=row["Balance"],
-                category=categorize(row['Details'])
+                category=categorize(row['Details']),
+                transaction_hash=txn_hash
             )
             session.add(txn)
             count += 1
 
         session.commit()
-
     return count

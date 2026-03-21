@@ -200,3 +200,53 @@ def test_transactions_are_persisted_to_database(raw_table, in_memory_engine):
         assert len(results) == 4
         assert results[0].description == "UPI/DR/petro payment"
         assert results[1].credit_amount == 50000.00
+
+def test_duplicate_upload_does_not_insert_extra_rows(raw_table, in_memory_engine):
+    """
+    Calls process_bank_statement twice with the same PDF.
+    The second call should insert 0 new rows because all hashes already exist.
+    Total rows in DB must still be 4, not 8.
+    """
+    from models import Transaction
+
+    mock_page = MagicMock()
+    mock_page.extract_table.return_value = raw_table
+
+    mock_pdf = MagicMock()
+    mock_pdf.pages = [mock_page]
+
+    with patch("pdfplumber.open", return_value=make_pdf_context_mock(mock_pdf)):
+        with patch("etl.engine", in_memory_engine):
+            from etl import process_bank_statement
+            first_count = process_bank_statement("fake_path.pdf")
+            second_count = process_bank_statement("fake_path.pdf")
+
+    assert first_count == 4
+    assert second_count == 0
+
+    with Session(in_memory_engine) as session:
+        results = session.exec(__import__("sqlmodel").select(Transaction)).all()
+        assert len(results) == 4
+
+
+def test_transaction_hash_is_stored_on_each_row(raw_table, in_memory_engine):
+    """
+    After inserting, every row in the DB must have a non-null transaction_hash.
+    """
+    from models import Transaction
+
+    mock_page = MagicMock()
+    mock_page.extract_table.return_value = raw_table
+
+    mock_pdf = MagicMock()
+    mock_pdf.pages = [mock_page]
+
+    with patch("pdfplumber.open", return_value=make_pdf_context_mock(mock_pdf)):
+        with patch("etl.engine", in_memory_engine):
+            from etl import process_bank_statement
+            process_bank_statement("fake_path.pdf")
+
+    with Session(in_memory_engine) as session:
+        results = session.exec(__import__("sqlmodel").select(Transaction)).all()
+        for row in results:
+            assert row.transaction_hash is not None
